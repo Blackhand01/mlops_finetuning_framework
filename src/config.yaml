@@ -1,0 +1,49 @@
+# config.yaml
+# Global configuration file for the entire MLops workflow for OpenAI fine tuning.
+
+dataset:
+  enable: false
+  raw_data_path: "./data/raw_dataset.csv"
+  adapter:
+    language_extraction: true
+    augment: false
+  split:
+    train_ratio: 0.7
+    validation_ratio: 0.15
+    evaluation_ratio: 0.15
+
+fine_tuning:
+  enable: false
+  training_file_id: "file-TRAINING123"
+  validation_file_id: "file-VALIDATION456"
+  base_model: "gpt-3.5-turbo-0613"
+  method: "supervised"   # options: 'supervised' or 'dpo'
+  hyperparameters:
+    n_epochs: 3
+    batch_size: 32
+    learning_rate_multiplier: 0.2
+  suffix: "industrial_translator"
+  monitor_loss: false
+  monitoring_interval: 30  # seconds
+  additional_options:
+    auto_upload: true
+    use_checkpointing: true
+
+evaluation:
+  enable: true
+  use_evals_api: true
+  eval_threshold: 0.85
+  analysis_method: "GPT-4o"  # method used to analyze failed tests
+  additional_options:
+    detailed_analysis: true
+
+reporting:
+  enable: false
+  languages: ["en", "it", "de", "fr", "es"]
+  metrics:
+    report_accuracy_by_revision: true
+    include_loss_trend: true
+  output_format: "pdf"
+  report_output_path: "./reports"
+  additional_options:
+    generate_interactive_dashboard: false
