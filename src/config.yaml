@@ -1,49 +1,18 @@
-# config.yaml
-# Global configuration file for the entire MLops workflow for OpenAI fine tuning.
-
 dataset:
-  enable: false
-  raw_data_path: "./data/raw_dataset.csv"
-  adapter:
-    language_extraction: true
-    augment: false
-  split:
-    train_ratio: 0.7
-    validation_ratio: 0.15
-    evaluation_ratio: 0.15
-
+  base_dir: "/Users/stefanoroybisignano/Desktop/W_SimplexRapid/fine-tuning/translations/data_preprocessing/data/lang_pairs/it-de/3_fineTuning/dpo" # or "/supervised"
 fine_tuning:
-  enable: false
-  training_file_id: "file-TRAINING123"
-  validation_file_id: "file-VALIDATION456"
-  base_model: "gpt-3.5-turbo-0613"
-  method: "supervised"   # options: 'supervised' or 'dpo'
+  enable: true                     # abilita/disabilita il fine-tuning
+  base_model: "gpt-4o-2024-08-06"  # modello di base da usare
+  method: "supervised"             # o "dpo"
+  suffix_template: "{lang_pair}-translator-{version}-{method}"
   hyperparameters:
     n_epochs: 3
-    batch_size: 32
-    learning_rate_multiplier: 0.2
-  suffix: "industrial_translator"
-  monitor_loss: false
-  monitoring_interval: 30  # seconds
-  additional_options:
-    auto_upload: true
-    use_checkpointing: true
-
+    batch_size: 1
+    learning_rate_multiplier: 2
 evaluation:
   enable: true
-  use_evals_api: true
-  eval_threshold: 0.85
-  analysis_method: "GPT-4o"  # method used to analyze failed tests
-  additional_options:
-    detailed_analysis: true
+  data_source_config_path: "evaluation/config/data_source_config.json"
+  testing_criteria_path: "evaluation/config/testing_criteria.json"
+  data_source_run_path: "evaluation/config/data_source_run.json"
 
-reporting:
-  enable: false
-  languages: ["en", "it", "de", "fr", "es"]
-  metrics:
-    report_accuracy_by_revision: true
-    include_loss_trend: true
-  output_format: "pdf"
-  report_output_path: "./reports"
-  additional_options:
-    generate_interactive_dashboard: false
+

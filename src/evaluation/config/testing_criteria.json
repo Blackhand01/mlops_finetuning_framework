@@ -1,0 +1,18 @@
+[
+    {
+      "type": "text_similarity",
+      "name": "Cosine similarity",
+      "evaluation_metric": "cosine",
+      "input": "{{ sample.output_text }}",
+      "reference": "{{ item.ground_truth }}",
+      "pass_threshold": 0.75
+    },
+    {
+      "type": "text_similarity",
+      "name": "BLEU score",
+      "evaluation_metric": "bleu",
+      "input": "{{ sample.output_text }}",
+      "reference": "{{ item.ground_truth }}",
+      "pass_threshold": 0.5
+    }
+  ]

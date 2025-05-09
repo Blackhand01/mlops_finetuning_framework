@@ -1,0 +1,62 @@
+{
+    "data_source_config": {
+      "type": "completions",
+      "model": "ft:gpt-4o-2024-08-06:simplex-rapid:it-de-translator-v3:BPC1TdXg",
+      "input_messages": {
+        "type": "item_reference",
+        "item_reference": "item.messages"
+      },
+      "sampling_params": {
+        "temperature": 0,
+        "max_completions_tokens": 512,
+        "top_p": 1,
+        "seed": 42
+      },
+      "item_schema": {
+        "type": "object",
+        "properties": {
+          "messages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "role":   { "type": "string" },
+                "content":{ "type": "string" }
+              },
+              "required": ["role", "content"]
+            }
+          },
+          "ground_truth": { "type": "string" }
+        },
+        "required": ["messages", "ground_truth"]
+      },
+      "include_sample_schema": true
+    },
+  
+    "testing_criteria": [
+      {
+        "type": "text_similarity",
+        "name": "Cosine similarity",
+        "evaluation_metric": "cosine",
+        "input": "{{ sample.output_text }}",
+        "reference": "{{ item.ground_truth }}",
+        "pass_threshold": 0.75
+      },
+      {
+        "type": "text_similarity",
+        "name": "BLEU score",
+        "evaluation_metric": "bleu",
+        "input": "{{ sample.output_text }}",
+        "reference": "{{ item.ground_truth }}",
+        "pass_threshold": 0.50
+      }
+    ],
+  
+    "data_source_run": {
+      "source": {
+        "type": "file_id",
+        "id": "DATASET_FILE_ID"
+      }
+    }
+  }
+  

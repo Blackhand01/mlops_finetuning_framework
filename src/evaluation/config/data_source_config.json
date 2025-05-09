@@ -1,0 +1,16 @@
+{
+    "type": "custom",
+    "item_schema": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "type": "string"
+        },
+        "ground_truth": {
+          "type": "string"
+        }
+      },
+      "required": ["input", "ground_truth"]
+    },
+    "include_sample_schema": true
+  }

@@ -1,129 +1,203 @@
-"""
-config_loader.py
+# src/config.py
 
-This module contains the ConfigLoader class, which is responsible for
-loading and validating the YAML configuration file for the MLOps workflow
-focusing on OpenAI fine-tuning.
+from __future__ import annotations
 
-Usage example:
-    loader = ConfigLoader("config.yaml")
-    config = loader.load_config()
-    print(config)
+import re
+import json
+from pathlib import Path
+from typing import Dict, Any, Optional
+from dataclasses import dataclass
 
-Requirements:
-    - pyyaml >= 5.4
-"""
-
-import os
 import yaml
-from typing import Any, Dict
 
+# =============================================================================
+# Dataclass helpers                                                            
+# =============================================================================
+
+@dataclass(frozen=True)
+class DatasetPaths:
+    """Absolute paths to the train / valid / eval JSONL files."""
+    train: Path
+    valid: Path
+    eval: Path
+
+    def as_dict(self) -> Dict[str, str]:
+        return {k: str(v) for k, v in self.__dict__.items()}
+
+
+@dataclass(frozen=True)
+class FineTuningConfig:
+    """Aggregates every parameter required to start a fine-tuning job."""
+    lang_pair: str
+    method: str
+    version: str
+    suffix: str
+    base_model: str
+    hyperparameters: Dict[str, Any]
+    data: DatasetPaths
+
+
+# =============================================================================
+# Defaults                                                                     
+# =============================================================================
+
+DEFAULT_HYPERPARAMS: Dict[str, Any] = {
+    "n_epochs": 3,
+    "batch_size": 1,
+    "learning_rate_multiplier": 2,
+    "seed": 2063707736,
+}
+DEFAULT_BASE_MODEL = "gpt-4o-2024-08-06"
+DEFAULT_SUFFIX_TEMPLATE = "{lang_pair}-translator-{version}-{method}"
+
+# Keywords → field mapping for dataset discovery
+_FILE_KEYWORDS: Dict[str, tuple[str, ...]] = {
+    "train": ("train", "training"),
+    "valid": ("valid", "validation"),
+    "eval": ("eval", "evaluation"),
+}
+
+
+# =============================================================================
+# Auto-builder                                                                 
+# =============================================================================
+
+def _auto_version(method_dir: Path) -> str:
+    """Return the highest `v*` sub-folder name (e.g. `v7`)."""
+    versions = sorted(
+        (p for p in method_dir.iterdir() if p.is_dir() and p.name.lstrip("v").isdigit()),
+        key=lambda p: int(p.name.lstrip("v"))
+    )
+    if not versions:
+        raise FileNotFoundError(f"No 'v*' directories found in {method_dir}")
+    return versions[-1].name
+
+
+def _find_file(dir_path: Path, keywords: tuple[str, ...]) -> Path:
+    """Return the first .jsonl file whose stem contains any of the keywords."""
+    pattern = re.compile(r"|".join(map(re.escape, keywords)), re.IGNORECASE)
+    for fp in dir_path.iterdir():
+        if fp.is_file() and fp.suffix.lower() == ".jsonl" and pattern.search(fp.stem):
+            return fp
+    raise FileNotFoundError(f"No .jsonl matching {keywords} in {dir_path}")
+
+
+def _build_ft_config(
+    base_dir: Path,
+    *,
+    manual_version: Optional[str] = None,
+    base_model: str = DEFAULT_BASE_MODEL,
+    hyperparameters: Optional[Dict[str, Any]] = None,
+    suffix_template: str = DEFAULT_SUFFIX_TEMPLATE,
+) -> FineTuningConfig:
+    """Derive every parameter needed for fine-tuning starting from base_dir."""
+    hyperparameters = hyperparameters or DEFAULT_HYPERPARAMS
+
+    # Expected directory layout: …/<lang_pair>/3_fineTuning/<method>
+    method = base_dir.name
+    lang_pair = base_dir.parent.parent.parent.name
+    version = manual_version or _auto_version(base_dir)
+
+    vdir = base_dir / version
+    data_paths = DatasetPaths(
+        train=_find_file(vdir, _FILE_KEYWORDS["train"]),
+        valid=_find_file(vdir, _FILE_KEYWORDS["valid"]),
+        eval=_find_file(vdir, _FILE_KEYWORDS["eval"]),
+    )
+
+    suffix = suffix_template.format(
+        lang_pair=lang_pair,
+        version=version.lstrip("v"),
+        method=method,
+    )
+
+    return FineTuningConfig(
+        lang_pair=lang_pair,
+        method=method,
+        version=version,
+        suffix=suffix,
+        base_model=base_model,
+        hyperparameters=hyperparameters,
+        data=data_paths,
+    )
+
+
+# =============================================================================
+# Unified loader                                                               
+# =============================================================================
 
 class ConfigLoader:
-    """
-    ConfigLoader is responsible for loading and validating the project's
-    main configuration from a specified YAML file.
-
-    Attributes:
-        config_path (str): The path to the YAML configuration file.
-
-    Methods:
-        load_config() -> Dict[str, Any]:
-            Loads and validates the configuration from the YAML file,
-            returning it as a Python dictionary.
-
-        _validate_schema(config: Dict[str, Any]) -> None:
-            Validates the configuration dictionary against required
-            fields and logical constraints.
-    """
+    """Load a YAML config file or auto-generate config from a data directory."""
 
     def __init__(self, config_path: str) -> None:
-        """
-        Initializes the ConfigLoader with the given path to the YAML file.
+        self.path = Path(config_path).expanduser().resolve()
 
-        Args:
-            config_path (str): The path to the configuration YAML file.
-        """
-        self.config_path = config_path
+    def load(self) -> Dict[str, Any]:
+        """Return a validated configuration dictionary."""
+        # If it's a YAML file, read and validate it
+        if self.path.is_file() and self.path.suffix.lower() in {".yaml", ".yml"}:
+            cfg = self._read_yaml()
+            self._validate_schema(cfg)
+            return cfg
 
-    def load_config(self) -> Dict[str, Any]:
-        """
-        Loads the configuration from the YAML file and validates it.
+        # Otherwise, zero-config mode: directory contains the data
+        ft_cfg = _build_ft_config(self.path)
+        return self._package_auto_config(ft_cfg)
 
-        Returns:
-            A dictionary containing the configuration parameters.
-
-        Raises:
-            FileNotFoundError: If the YAML file is not found.
-            yaml.YAMLError: If the YAML file can't be parsed.
-            ValueError: If configuration validation fails.
-        """
-        if not os.path.isfile(self.config_path):
-            raise FileNotFoundError(
-                f"Configuration file '{self.config_path}' does not exist."
-            )
-
-        with open(self.config_path, "r", encoding="utf-8") as file:
+    def _read_yaml(self) -> Dict[str, Any]:
+        with self.path.open("r", encoding="utf-8") as fp:
             try:
-                config = yaml.safe_load(file)
-            except yaml.YAMLError as e:
-                raise yaml.YAMLError(f"Error parsing YAML file: {e}")
+                return yaml.safe_load(fp) or {}
+            except yaml.YAMLError as exc:
+                raise yaml.YAMLError(f"YAML parsing error: {exc}") from exc
 
-        self._validate_schema(config)
-        return config
+    def _validate_schema(self, cfg: Dict[str, Any]) -> None:
+        """Shallow structural checks for classic YAML mode."""
+        expected = {"dataset", "fine_tuning", "evaluation"}
+        missing = expected - cfg.keys()
+        if missing:
+            raise ValueError(f"Missing top-level keys: {missing}")
 
-    def _validate_schema(self, config: Dict[str, Any]) -> None:
-        """
-        Validates the config dictionary according to the expected schema and
-        logical constraints.
+        ds = cfg["dataset"]
+        if "base_dir" not in ds or not Path(ds["base_dir"]).is_dir():
+            raise ValueError("dataset.base_dir missing or invalid")
 
-        Args:
-            config (Dict[str, Any]): The configuration dictionary to validate.
+        ft = cfg["fine_tuning"]
+        # 'method' is no longer mandatory: we derive it from the path
+        for key in ("enable", "base_model", "suffix_template", "hyperparameters"):
+            if key not in ft:
+                raise ValueError(f"fine_tuning.{key} missing")
 
-        Raises:
-            ValueError: If any required key is missing or if a logical
-                       constraint is violated.
-        """
-        # Top-level keys expected
-        required_keys = ["dataset", "fine_tuning", "evaluation", "reporting"]
-        for key in required_keys:
-            if key not in config:
-                raise ValueError(f"Missing required top-level config key: '{key}'")
+        ev = cfg["evaluation"]
+        for key in ("enable", "data_source_config_path", "testing_criteria_path", "data_source_run_path"):
+            if key not in ev:
+                raise ValueError(f"evaluation.{key} missing")
 
-        # Example: Validate dataset structure
-        dataset = config["dataset"]
-        for dk in ["enable", "raw_data_path", "adapter", "split"]:
-            if dk not in dataset:
-                raise ValueError(f"Missing dataset config key: '{dk}'")
+    def _package_auto_config(self, ft: FineTuningConfig) -> Dict[str, Any]:
+        """Produce the dict expected by pipeline_automatic in zero-config mode,
+        resolving evaluation config paths dynamically."""
+        project_root = self.path.parent
+        cfg_dir = project_root / "evaluation" / "config"
 
-        # Validate split ratios sum (train+val+eval should not exceed 1.0 in general)
-        train_ratio = dataset["split"].get("train_ratio", 0.0)
-        val_ratio = dataset["split"].get("validation_ratio", 0.0)
-        eval_ratio = dataset["split"].get("evaluation_ratio", 0.0)
-
-        if (train_ratio + val_ratio + eval_ratio) > 1.0:
-            raise ValueError(
-                "The sum of train_ratio, validation_ratio, and evaluation_ratio "
-                "cannot exceed 1.0."
-            )
-
-        # Fine-tuning keys
-        fine_tuning = config["fine_tuning"]
-        for ft in ["enable", "training_file_id", "base_model", "method"]:
-            if ft not in fine_tuning:
-                raise ValueError(f"Missing fine_tuning config key: '{ft}'")
-
-        # Evaluation keys
-        evaluation = config["evaluation"]
-        for ev in ["enable", "use_evals_api", "analysis_method"]:
-            if ev not in evaluation:
-                raise ValueError(f"Missing evaluation config key: '{ev}'")
-
-        # Reporting keys
-        reporting = config["reporting"]
-        for rp in ["enable", "languages", "metrics", "output_format"]:
-            if rp not in reporting:
-                raise ValueError(f"Missing reporting config key: '{rp}'")
-
-        # If we reach this point, config is considered valid
-        # but additional logical or cross-key checks can be added as needed.
+        return {
+            "dataset": {"base_dir": str(self.path)},
+            "fine_tuning": {
+                "enable": True,
+                "base_model": ft.base_model,
+                "method": ft.method,
+                "suffix_template": DEFAULT_SUFFIX_TEMPLATE,
+                "hyperparameters": ft.hyperparameters,
+            },
+            "evaluation": {
+                "enable": True,
+                "data_source_config_path": str(cfg_dir / "data_source_config.json"),
+                "testing_criteria_path":     str(cfg_dir / "testing_criteria.json"),
+                "data_source_run_path":      str(cfg_dir / "data_source_run.json"),
+            },
+            "_autobuild": {
+                "lang_pair": ft.lang_pair,
+                "version":   ft.version,
+                "suffix":    ft.suffix,
+                "data":      ft.data.as_dict(),
+            },
+        }

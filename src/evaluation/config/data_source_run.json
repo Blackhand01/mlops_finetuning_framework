@@ -1,0 +1,35 @@
+{
+    "type": "completions",
+    "model": "ft:gpt-4o-2024-08-06:simplex-rapid:it-de-translator-v3:BPC1TdXg",
+    "input_messages": {
+      "type": "template",
+      "template": [
+        {
+          "type": "message",
+          "role": "developer",
+          "content": {
+            "type": "input_text",
+            "text": "You are a professional translator. Translate the following Italian text into German:"
+          }
+        },
+        {
+          "type": "message",
+          "role": "user",
+          "content": {
+            "type": "input_text",
+            "text": "{{item.input}}"
+          }
+        }
+      ]
+    },
+    "sampling_params": {
+      "temperature": 0,
+      "max_completions_tokens": 512,
+      "top_p": 1,
+      "seed": 42
+    },
+    "source": {
+      "type": "file_id",
+      "id": ""
+    }
+  }
