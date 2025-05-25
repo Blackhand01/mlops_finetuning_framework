@@ -93,9 +93,10 @@ def _build_ft_config(
     """Derive every parameter needed for fine-tuning starting from base_dir."""
     hyperparameters = hyperparameters or DEFAULT_HYPERPARAMS
 
-    # Expected directory layout: …/<lang_pair>/3_fineTuning/<method>
+    # Expected directory layout: …/lang_pairs/<lang_pair>/3_fineTuning/<method>
     method = base_dir.name
-    lang_pair = base_dir.parent.parent.parent.name
+    # go up two levels: <method>/../.. -> <lang_pair>
+    lang_pair = base_dir.parent.parent.name
     version = manual_version or _auto_version(base_dir)
 
     vdir = base_dir / version
